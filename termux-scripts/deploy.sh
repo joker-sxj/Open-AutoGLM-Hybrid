@@ -17,6 +17,19 @@ print_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
 }
 
+purge_all() {
+    print_warning "开始彻底删除并重装（会删除 Open-AutoGLM、~/.autoglm、~/bin/autoglm）..."
+
+    rm -rf ~/Open-AutoGLM
+    rm -rf ~/.autoglm
+    rm -f  ~/bin/autoglm
+
+    sed -i '/source ~\/\.autoglm\/config\.sh/d' ~/.bashrc || true
+    sed -i '/# AutoGLM 配置/d' ~/.bashrc || true
+
+    print_success "清理完成"
+}
+
 print_success() {
     echo -e "${GREEN}[SUCCESS]${NC} $1"
 }
@@ -84,16 +97,34 @@ install_dependencies() {
 
 # 安装 Python 依赖
 install_python_packages() {
-    print_info "安装 Python 依赖包..."
-    
-    # 升级 pip
-    pip install --upgrade pip
-    
-    # 安装依赖
-    pip install pillow openai requests
-    
-    print_success "Python 依赖安装完成"
+    print_info "安装 Python 依赖包（使用虚拟环境 venv）..."
+
+    # 确保目录存在
+    mkdir -p ~/.autoglm
+
+    # 创建/复用 venv
+    if [ ! -d ~/.autoglm/venv ]; then
+        print_info "创建虚拟环境: ~/.autoglm/venv"
+        python -m venv ~/.autoglm/venv
+    fi
+
+    # 激活 venv
+    source ~/.autoglm/venv/bin/activate
+
+    # 这里升级的是 venv 里的 pip（Termux 允许）
+    python -m pip install -U pip setuptools wheel
+
+    # Pillow 在 Termux 常需要系统库，先装系统依赖（不在 venv 里装）
+    deactivate
+    pkg install -y clang make pkg-config zlib libjpeg-turbo libpng freetype harfbuzz fribidi lcms libtiff libwebp openjpeg
+    source ~/.autoglm/venv/bin/activate
+
+    # 安装你写死的依赖（建议后面尽量走 requirements.txt）
+    python -m pip install --no-cache-dir pillow openai requests
+
+    print_success "Python 依赖安装完成（venv）"
 }
+
 
 # 下载 Open-AutoGLM
 download_autoglm() {
@@ -120,19 +151,21 @@ download_autoglm() {
 # 安装 Open-AutoGLM
 install_autoglm() {
     print_info "安装 Open-AutoGLM..."
-    
+
     cd ~/Open-AutoGLM
-    
-    # 安装项目依赖
+
+    # 强制进入同一个 venv
+    source ~/.autoglm/venv/bin/activate
+
     if [ -f "requirements.txt" ]; then
-        pip install -r requirements.txt
+        python -m pip install --no-cache-dir -r requirements.txt
     fi
-    
-    # 安装 phone_agent
-    pip install -e .
-    
+
+    python -m pip install --no-cache-dir -e .
+
     print_success "Open-AutoGLM 安装完成"
 }
+
 
 # 下载混合方案脚本
 download_hybrid_scripts() {
@@ -289,7 +322,11 @@ show_completion() {
 # 主函数
 main() {
     print_header
-    
+        read -p "是否彻底删除后重新安装? (y/n): " reset_confirm
+    if [ "$reset_confirm" = "y" ]; then
+        purge_all
+    fi
+
     # 检查是否在 Termux 中运行
     if [ ! -d "/data/data/com.termux" ]; then
         print_error "此脚本必须在 Termux 中运行！"
